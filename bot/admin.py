@@ -1,3 +1,9 @@
 from django.contrib import admin
 
-# Register your models here.
+from .models import Bouquet
+
+
+@admin.register(Bouquet)
+class BouquetAdmin(admin.ModelAdmin):
+    list_display = ('title', 'price')
+    search_fields = ('title',)
