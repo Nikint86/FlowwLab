@@ -2,14 +2,32 @@ from django.db import models
 
 
 class Bouquet(models.Model):
+    COLOR_CHOICES = [
+        ("Белый", "Белый"),
+        ("Розовый", "Розовый"),
+        ("Красный", "Красный"),
+        # добавим по мере надобности
+    ]
+
+    PRICE_CHOICES = [
+        ("~500", "~500"),
+        ("~1000", "~1000"),
+        ("~2000", "~2000"),
+        ("Больше", "Больше"),
+        ("Не важно", "Не важно"),
+    ]
+
     title = models.CharField('Название', max_length=200)
     photo = models.ImageField('Фото', upload_to='bouquets/')
     composition = models.TextField('Состав')
     description = models.TextField('Описание')
     price = models.DecimalField('Цена', max_digits=10, decimal_places=2)
 
+    color = models.CharField('Цвет', max_length=50, choices=COLOR_CHOICES, default="Розовый")
+    price_category = models.CharField('Ценовая категория', max_length=50, choices=PRICE_CHOICES, default="~1000")
+
     def __str__(self):
-        return self.title
+        return f"{self.title} ({self.color}, {self.price} руб.)"
 
 
 class Order(models.Model):
