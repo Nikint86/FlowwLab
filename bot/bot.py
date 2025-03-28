@@ -4,6 +4,33 @@ from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, Callb
 from dotenv import load_dotenv
 
 
+# Заглушка "базы данных" букетов
+BOUQUETS_DB = {
+    "Белый": {
+        "~500": {
+            "photo": "https://violetflowers.ru/upload/resize_cache/iblock/210/800_800_1445b4302703fbf0bc9433e7bed9bfe3d/210b4d1c9970e1fcdd65812bbac7b7c8.jpeg",
+            "name": "Нежность",
+            "composition": "5 белых роз, гипсофила",
+            "price": "500 руб."
+        },
+        "~1000": {
+            "photo": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRBOg1pSSompNpXp8C0nvbUzFDpNWCoGq_PMQ&s",
+            "name": "Снежная королева",
+            "composition": "15 белых роз, эвкалипт",
+            "price": "1000 руб."
+        }
+    },
+    "Розовый": {
+        "~1000": {
+            "photo": "https://www.beauty-flowers-moscow.ru/wp-content/uploads/2017/12/11-rozovyh-pionov-v-rozovoj-upakovke.jpg",
+            "name": "Розовые мечты",
+            "composition": "11 розовых роз, пионы",
+            "price": "1000 руб."
+        }
+    }
+}
+
+
 def start(update: Update, context: CallbackContext):
     """Отправляет приветственное сообщение и запрашивает согласие."""
     user = update.effective_user
@@ -72,6 +99,68 @@ def handle_color_choice(update: Update, context: CallbackContext):
     )
 
 
+def handle_price_choice(update: Update, contex: CallbackContext):
+    """Показывает подобранный букет и спрашивает 'Нравится?'"""
+    price = update.message.text
+    color = contex.user_data['color']
+    bouquet = BOUQUETS_DB.get(color, {}).get(price)
+    if not bouquet:
+        update.message.reply_text(
+            "К сожалению, сейчас нет букетов с такими параметрами 😢\n"
+            "Попробуй изменить критерии поиска (/start)",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return
+    decription = (
+        f"💐 *{bouquet['name']}*\n"
+        f"🎨 Цвет: {color}\n"
+        f"💰 Цена: {bouquet['price']}\n"
+        f"🌸 Состав: {bouquet['composition']}\n\n"
+        "Тебе нравится этот вариант?"
+    )
+    contex.user_data['selected_bouquet'] = bouquet
+    update.message.reply_photo(
+        photo=bouquet['photo'],
+        caption=decription,
+        parse_mode="Markdown"
+    )
+    keyboard = [[KeyboardButton("Нравится"), KeyboardButton("Не нравится")]]
+    update.message.reply_text(
+        "Выбери вариант:",
+        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    )
+
+
+def handle_review(update: Update, context: CallbackContext):
+    """Обрабатывает ответ 'Нравится?'"""
+    response = update.message.text
+    bouquet = context.user_data.get('selected_bouquet')
+
+    if not bouquet:
+        return start(update, context)
+
+    if response == "Нравится":
+        update.message.reply_text(
+            "Супер! Хочешь:\n"
+            "1️⃣ Оформить заказ\n"
+            "2️⃣ Узнать о доставке\n"
+            "3️⃣ Посмотреть другие букеты\n\n"
+            "Напиши номер варианта или /start",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        context.user_data['awaiting_action'] = True
+    elif response == "Не нравится":
+        update.message.reply_text(
+            "Хочешь:\n"
+            "1️⃣ Подобрать другой букет (/start)\n"
+            "2️⃣ Позвать флориста\n\n"
+            "Напиши номер варианта",
+            reply_markup=ReplyKeyboardRemove()
+        )
+    else:
+        update.message.reply_text("Пожалуйста, ответь 'Нравится' или 'Не нравится'")
+
+
 def route_message(update: Update, context: CallbackContext):
     """Промежуточная функция — распределитель сообщений."""
     text = update.message.text
@@ -84,6 +173,12 @@ def route_message(update: Update, context: CallbackContext):
 
     elif text in ["Белый", "Розовый"]:
         handle_color_choice(update, context)
+
+    elif text in ["~500", "~1000", "~2000", "Больше", "Не важно"]:
+        handle_price_choice(update, context)
+
+    elif text in ["Да", "Нет"] and 'selected_bouquet' in context.user_data:
+        handle_review(update, context)
 
     else:
         update.message.reply_text("Пожалуйста, выбери вариант из меню.")
