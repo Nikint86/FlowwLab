@@ -34,6 +34,7 @@ BOUQUETS_DB = {
 def start(update: Update, context: CallbackContext):
     """Отправляет приветственное сообщение и запрашивает согласие."""
     user = update.effective_user
+    context.user_data.clear()
     welcome_text = (
         f"Привет, {user.first_name}! 👋\n"
         "Я бот, который поможет тебе с выбором букета.\n"
@@ -45,6 +46,7 @@ def start(update: Update, context: CallbackContext):
     ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True)
     update.message.reply_text(welcome_text, reply_markup=reply_markup)
+    context.user_data['step'] = 'consent'
 
 
 def handle_consent(update: Update, context: CallbackContext):
@@ -52,6 +54,7 @@ def handle_consent(update: Update, context: CallbackContext):
     user_response = update.message.text
     if user_response == "Да":
         context.user_data['consent_given'] = True
+        context.user_data['step'] = 'occasion_choice'
         occasions = ["День рождения", "Свадьба", "Школа", "Без повода", "Другой повод"]
         keyboard = [[KeyboardButton(occasion)] for occasion in occasions]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -64,6 +67,7 @@ def handle_consent(update: Update, context: CallbackContext):
             "Хорошо, если передумаешь — возвращайся! 👋",
             reply_markup=ReplyKeyboardRemove()
         )
+        context.user_data.clear() # можно и без этого - при старте обновится
     else:
         update.message.reply_text("Пожалуйста, используй кнопки ниже.")
 
@@ -72,6 +76,7 @@ def handle_occasion_choice(update: Update, context: CallbackContext):
     """Обрабатывает выбор повода и предлагает выбор цвета."""
     occasion = update.message.text
     context.user_data['occasion'] = occasion
+    context.user_data['step'] = 'color_choice'
 
     if occasion == "Другой повод":
         update.message.reply_text("Напиши, пожалуйста, какой у тебя повод?")
@@ -89,6 +94,7 @@ def handle_color_choice(update: Update, context: CallbackContext):
     """Обрабатывает выбор цвета и предлагает выбрать цену."""
     color = update.message.text
     context.user_data['color'] = color
+    context.user_data['step'] = 'price_choice'
 
     prices = ["~500", "~1000", "~2000", "Больше", "Не важно"]
     keyboard = [[KeyboardButton(price)] for price in prices]
@@ -99,11 +105,14 @@ def handle_color_choice(update: Update, context: CallbackContext):
     )
 
 
-def handle_price_choice(update: Update, contex: CallbackContext):
+def handle_price_choice(update: Update, context: CallbackContext):
     """Показывает подобранный букет и спрашивает 'Нравится?'"""
     price = update.message.text
-    color = contex.user_data['color']
+    color = context.user_data['color']
     bouquet = BOUQUETS_DB.get(color, {}).get(price)
+
+    context.user_data['step'] = 'review'
+
     if not bouquet:
         update.message.reply_text(
             "К сожалению, сейчас нет букетов с такими параметрами 😢\n"
@@ -118,7 +127,7 @@ def handle_price_choice(update: Update, contex: CallbackContext):
         f"🌸 Состав: {bouquet['composition']}\n\n"
         "Тебе нравится этот вариант?"
     )
-    contex.user_data['selected_bouquet'] = bouquet
+    context.user_data['selected_bouquet'] = bouquet
     update.message.reply_photo(
         photo=bouquet['photo'],
         caption=decription,
@@ -148,6 +157,7 @@ def handle_review(update: Update, context: CallbackContext):
             "Напиши номер варианта или /start",
             reply_markup=ReplyKeyboardRemove()
         )
+        context.user_data['step'] = 'final_options'
         context.user_data['awaiting_action'] = True
     elif response == "Не нравится":
         update.message.reply_text(
@@ -157,29 +167,26 @@ def handle_review(update: Update, context: CallbackContext):
             "Напиши номер варианта",
             reply_markup=ReplyKeyboardRemove()
         )
+        # context.user_data['step'] = '?' перенаправление на консультацию или новый букет
     else:
         update.message.reply_text("Пожалуйста, ответь 'Нравится' или 'Не нравится'")
 
 
 def route_message(update: Update, context: CallbackContext):
     """Промежуточная функция — распределитель сообщений."""
-    text = update.message.text
+    step = context.user_data.get('step')
+    text = update.message.text  # для логов оставим пока
 
-    if 'consent_given' not in context.user_data:
+    if step == 'consent':
         handle_consent(update, context)
-
-    elif text in ["День рождения", "Свадьба", "Школа", "Без повода", "Другой повод"]:
+    elif step == 'occasion_choice':
         handle_occasion_choice(update, context)
-
-    elif text in ["Белый", "Розовый"]:
+    elif step == 'color_choice':
         handle_color_choice(update, context)
-
-    elif text in ["~500", "~1000", "~2000", "Больше", "Не важно"]:
+    elif step == 'price_choice':
         handle_price_choice(update, context)
-
-    elif text in ["Нравится", "Не нравится"] and 'selected_bouquet' in context.user_data:
+    elif step == 'review':
         handle_review(update, context)
-
     else:
         update.message.reply_text("Пожалуйста, выбери вариант из меню.")
 
