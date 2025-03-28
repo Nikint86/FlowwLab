@@ -177,7 +177,7 @@ def route_message(update: Update, context: CallbackContext):
     elif text in ["~500", "~1000", "~2000", "Больше", "Не важно"]:
         handle_price_choice(update, context)
 
-    elif text in ["Да", "Нет"] and 'selected_bouquet' in context.user_data:
+    elif text in ["Нравится", "Не нравится"] and 'selected_bouquet' in context.user_data:
         handle_review(update, context)
 
     else:
