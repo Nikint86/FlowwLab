@@ -2,3 +2,4 @@ python-telegram-bot==13.15
 asgiref==3.8.1
 Django==4.2.20
 sqlparse==0.5.3
+pillow==11.1.0
