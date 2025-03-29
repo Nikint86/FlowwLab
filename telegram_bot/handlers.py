@@ -1,7 +1,23 @@
 import os
-from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+import sys
+import django
+from django.conf import settings
+
+# Добавляем абсолютный путь до корня проекта
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(BASE_DIR)
+
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+django.setup()
+
+
+import os
+import random
+
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, InputFile
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
 from dotenv import load_dotenv
+from bot.models import Bouquet
 
 
 # Заглушка "базы данных" букетов
@@ -81,7 +97,7 @@ def handle_occasion_choice(update: Update, context: CallbackContext):
     if occasion == "Другой повод":
         update.message.reply_text("Напиши, пожалуйста, какой у тебя повод?")
     else:
-        colors = ["Белый", "Розовый"]
+        colors = Bouquet.objects.values_list('color', flat=True).distinct()
         keyboard = [[KeyboardButton(color)] for color in colors]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         update.message.reply_text(
@@ -96,7 +112,7 @@ def handle_color_choice(update: Update, context: CallbackContext):
     context.user_data['color'] = color
     context.user_data['step'] = 'price_choice'
 
-    prices = ["~500", "~1000", "~2000", "Больше", "Не важно"]
+    prices = list(Bouquet.objects.values_list('price_category', flat=True).distinct())
     keyboard = [[KeyboardButton(price)] for price in prices]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     update.message.reply_text(
@@ -107,9 +123,10 @@ def handle_color_choice(update: Update, context: CallbackContext):
 
 def handle_price_choice(update: Update, context: CallbackContext):
     """Показывает подобранный букет и спрашивает 'Нравится?'"""
-    price = update.message.text
+    price_category = update.message.text
     color = context.user_data['color']
-    bouquet = BOUQUETS_DB.get(color, {}).get(price)
+    bouquet = Bouquet.objects.filter(color=color,
+                                     price_category=price_category).order_by('?').first()
 
     context.user_data['step'] = 'review'
 
@@ -120,19 +137,24 @@ def handle_price_choice(update: Update, context: CallbackContext):
             reply_markup=ReplyKeyboardRemove()
         )
         return
-    decription = (
-        f"💐 *{bouquet['name']}*\n"
-        f"🎨 Цвет: {color}\n"
-        f"💰 Цена: {bouquet['price']}\n"
-        f"🌸 Состав: {bouquet['composition']}\n\n"
+    
+    context.user_data['selected_bouquet'] = bouquet
+
+    caption = (
+        f"💐 *{bouquet.title}*\n"
+        f"🎨 Цвет: {bouquet.color}\n"
+        f"💰 Цена: {bouquet.price} руб.\n"
+        f"🌸 Состав: {bouquet.composition}\n\n"
         "Тебе нравится этот вариант?"
     )
-    context.user_data['selected_bouquet'] = bouquet
-    update.message.reply_photo(
-        photo=bouquet['photo'],
-        caption=decription,
-        parse_mode="Markdown"
-    )
+
+    with open(bouquet.photo.path, 'rb') as image:
+        update.message.reply_photo(
+            photo=InputFile(image),
+            caption=caption,
+            parse_mode="Markdown"
+        )
+    
     keyboard = [[KeyboardButton("Нравится"), KeyboardButton("Не нравится")]]
     update.message.reply_text(
         "Выбери вариант:",
@@ -156,16 +178,104 @@ def handle_review(update: Update, context: CallbackContext):
             reply_markup=ReplyKeyboardRemove()
         )
     elif response == "Не нравится":
-        # ТУТ НУЖНО СДЕЛАТЬ ЕЩЁ 2 ВАРИАНТА С РАНДОМНЫМ БУКЕТОМ И С ПЕРЕВОДОМ НА ФЛОРИСТА
+        keyboard = [[KeyboardButton("Заказать консультацию")], [KeyboardButton("Посмотреть другой букет")]]
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         update.message.reply_text(
-            "Хочешь:\n"
-            "Хорошо, если передумаете - мы всегда на связи!\n"
-            "Напишите /start когда будете готовы выбрать букет.",
-            reply_markup=ReplyKeyboardRemove()
+            "**Хотите что-то более уникальное?**\n\n"
+            "Подберите другой букет из нашей коллекции или закажите консультацию флориста:",
+            reply_markup=reply_markup
         )
+        context.user_data['step'] = 'dislike_options'
+
         # context.user_data['step'] = '?' перенаправление на консультацию или новый букет
     else:
         update.message.reply_text("Пожалуйста, ответь 'Нравится' или 'Не нравится'")
+
+
+def handle_dislike_options(update: Update, context: CallbackContext):
+    choice = update.message.text
+    if choice == "Посмотреть другой букет":
+        bouquets = list(Bouquet.objects.all()) # все наверное перебор, но хз
+        if not bouquets:
+            update.message.reply_text("Пока нет букетов в базе. Попробуй позже.")
+            return
+        
+        site_url = os.getenv('SITE_DOMAIN', 'http://127.0.0.1:8000')  # fallback на локальный адрес
+        photo_url = f"{site_url}{bouquet.photo.url}"
+
+        bouquet = random.choice(bouquets)
+        context.user_data['selected_bouquet'] = {
+            'name': bouquet.title,
+            'composition': bouquet.composition,
+            'price': bouquet.price,
+            'photo': photo_url,
+        }
+        context.user_data['step'] = 'review'
+
+        update.message.reply_photo(
+            photo=photo_url,
+            caption=(
+                f"💐 *{bouquet.title}*\n"
+                f"🌸 Состав: {bouquet.composition}\n"
+                f"💰 Цена: {bouquet.price} руб.\n\n"
+                "Тебе нравится этот вариант?"
+            ),
+            parse_mode="Markdown"
+        )
+        keyboard = [[KeyboardButton("Нравится"),
+                     KeyboardButton("Не нравится")]]
+        update.message.reply_text("Выбери вариант:",
+                                  reply_markup=ReplyKeyboardMarkup(keyboard,
+                                                                   resize_keyboard=True))
+
+    elif choice == "Заказать консультацию":
+        update.message.reply_text("Пожалуйста, укажите номер телефона:")
+        context.user_data['step'] = 'get_phone'
+
+
+def handle_get_phone(update: Update, context: CallbackContext):
+    phone = update.message.text
+    # florist_id = 987654321  # нужен айди - при отправке сейчас будет ошибка
+
+    # context.bot.send_message(
+    #     chat_id=florist_id,
+    #     text=f"📞 Заявка на консультацию!\nНомер: {phone}"
+    # )
+
+    update.message.reply_text(
+        "Флорист скоро свяжется с вами. А пока можете присмотреть что-нибудь из готовой коллекции 👇"
+    )
+
+    # Покажем букет
+    bouquets = list(Bouquet.objects.all()) # возможно стоит не all использовать
+    if bouquets:
+        bouquet = random.choice(bouquets)
+        site_url = os.getenv('SITE_DOMAIN', 'http://127.0.0.1:8000')  # fallback на локальный адрес
+        photo_url = f"{site_url}{bouquet.photo.url}"
+
+        context.user_data['selected_bouquet'] = {
+            'name': bouquet.title,
+            'composition': bouquet.composition,
+            'price': bouquet.price,
+            'photo': photo_url,
+        }
+        context.user_data['step'] = 'review'
+
+        update.message.reply_photo(
+            photo=photo_url,
+            caption=(
+                f"💐 *{bouquet.title}*\n"
+                f"🌸 Состав: {bouquet.composition}\n"
+                f"💰 Цена: {bouquet.price} руб.\n\n"
+                "Тебе нравится этот вариант?"
+            ),
+            parse_mode="Markdown"
+        )
+        keyboard = [[KeyboardButton("Нравится"),
+                     KeyboardButton("Не нравится")]]
+        update.message.reply_text("Выбери вариант:",
+                                  reply_markup=ReplyKeyboardMarkup(keyboard,
+                                                                   resize_keyboard=True))
 
 
 def handle_name_input(update: Update, context: CallbackContext):
@@ -222,22 +332,49 @@ def handle_time_input(update: Update, context: CallbackContext):
     time = update.message.text
     context.user_data['delivery_time'] = time
     # Формируем сводку заказа
+    bouquet = context.user_data['selected_bouquet']
     order_summary = (
         "✅ Ваш заказ оформлен!\n\n"
-        f"💐 Букет: {context.user_data['selected_bouquet']['name']}\n"
-        f"💰 Стоимость: {context.user_data['selected_bouquet']['price']}\n"
+        f"💐 Букет: {bouquet.title}\n"
+        f"💰 Стоимость: {bouquet.price} руб.\n"
+        f"🌸 Состав: {bouquet.composition}\n"
         f"👤 Получатель: {context.user_data['name']}\n"
         f"🏠 Адрес: {context.user_data['address']}\n"
         f"📅 Дата: {context.user_data['delivery_date']}\n"
         f"⏰ Время: {time}\n\n"
-        "Спасибо за заказ! Для оплаты с вами свяжется наш менеджер."
+        "Спасибо за заказ! 🥰 С вами скоро свяжется наш менеджер."
     )
-    update.message.reply_text(
-        order_summary,
-        reply_markup=ReplyKeyboardRemove()
-    )
-    context.user_data.clear()
-    context.user_data['step'] = 'order_complete'
+
+    with open(bouquet.photo.path, 'rb') as image:
+        update.message.reply_photo(
+            photo=InputFile(image),
+            caption=order_summary
+        )
+
+    update.message.reply_text("Ваш заказ принят! 💐",
+                              reply_markup=ReplyKeyboardRemove())
+    # notify_courier(context.bot, bouquet, order_summary)
+    # courier_id = os.getenv("COURIER_ID")
+    # with open(bouquet.photo.path, 'rb') as image:
+    #     context.bot.send_photo(
+    #         chat_id=courier_id,
+    #         photo=InputFile(image),
+    #         caption=order_summary
+    #     ) -- наверное стоит вынести в отдельную функцию notify_courier и заиметь чат айди 
+    # context.user_data.clear()
+    # context.user_data['step'] = 'order_complete'
+
+
+def notify_courier(bot, bouquet, order_summary):
+    courier_id = os.getenv("COURIER_ID")
+    if not courier_id:
+        return  # можно логгер добавить
+    with open(bouquet.photo.path, 'rb') as image:
+        bot.send_photo(
+            chat_id=courier_id,
+            photo=InputFile(image),
+            caption=order_summary
+        )
 
 
 def route_message(update: Update, context: CallbackContext):
@@ -263,6 +400,10 @@ def route_message(update: Update, context: CallbackContext):
         handle_date_input(update, context)
     elif step == 'get_time':
         handle_time_input(update, context)
+    elif step == 'dislike_options':
+        handle_dislike_options(update, context)
+    elif step == 'get_phone':
+        handle_get_phone(update, context)
     else:
         update.message.reply_text("Пожалуйста, выбери вариант из меню.")
 
