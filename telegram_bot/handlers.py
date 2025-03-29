@@ -199,29 +199,25 @@ def handle_dislike_options(update: Update, context: CallbackContext):
         if not bouquets:
             update.message.reply_text("Пока нет букетов в базе. Попробуй позже.")
             return
-        
-        site_url = os.getenv('SITE_DOMAIN', 'http://127.0.0.1:8000')  # fallback на локальный адрес
-        photo_url = f"{site_url}{bouquet.photo.url}"
 
         bouquet = random.choice(bouquets)
-        context.user_data['selected_bouquet'] = {
-            'name': bouquet.title,
-            'composition': bouquet.composition,
-            'price': bouquet.price,
-            'photo': photo_url,
-        }
+        context.user_data['selected_bouquet'] = bouquet
         context.user_data['step'] = 'review'
 
-        update.message.reply_photo(
-            photo=photo_url,
-            caption=(
-                f"💐 *{bouquet.title}*\n"
-                f"🌸 Состав: {bouquet.composition}\n"
-                f"💰 Цена: {bouquet.price} руб.\n\n"
-                "Тебе нравится этот вариант?"
-            ),
-            parse_mode="Markdown"
+        caption = (
+            f"💐 *{bouquet.title}*\n"
+            f"🌸 Состав: {bouquet.composition}\n"
+            f"💰 Цена: {bouquet.price} руб.\n\n"
+            "Тебе нравится этот вариант?"
         )
+
+        with open(bouquet.photo.path, 'rb') as image:
+            update.message.reply_photo(
+                photo=InputFile(image),
+                caption=caption,
+                parse_mode="Markdown"
+            )
+
         keyboard = [[KeyboardButton("Нравится"),
                      KeyboardButton("Не нравится")]]
         update.message.reply_text("Выбери вариант:",
@@ -250,27 +246,23 @@ def handle_get_phone(update: Update, context: CallbackContext):
     bouquets = list(Bouquet.objects.all()) # возможно стоит не all использовать
     if bouquets:
         bouquet = random.choice(bouquets)
-        site_url = os.getenv('SITE_DOMAIN', 'http://127.0.0.1:8000')  # fallback на локальный адрес
-        photo_url = f"{site_url}{bouquet.photo.url}"
 
-        context.user_data['selected_bouquet'] = {
-            'name': bouquet.title,
-            'composition': bouquet.composition,
-            'price': bouquet.price,
-            'photo': photo_url,
-        }
-        context.user_data['step'] = 'review'
+        context.user_data['selected_bouquet'] = bouquet
 
-        update.message.reply_photo(
-            photo=photo_url,
-            caption=(
-                f"💐 *{bouquet.title}*\n"
-                f"🌸 Состав: {bouquet.composition}\n"
-                f"💰 Цена: {bouquet.price} руб.\n\n"
-                "Тебе нравится этот вариант?"
-            ),
-            parse_mode="Markdown"
+        caption = (
+            f"💐 *{bouquet.title}*\n"
+            f"🌸 Состав: {bouquet.composition}\n"
+            f"💰 Цена: {bouquet.price} руб.\n\n"
+            "Тебе нравится этот вариант?"
         )
+
+        with open(bouquet.photo.path, 'rb') as image:
+            update.message.reply_photo(
+                photo=InputFile(image),
+                caption=caption,
+                parse_mode="Markdown"
+            )
+
         keyboard = [[KeyboardButton("Нравится"),
                      KeyboardButton("Не нравится")]]
         update.message.reply_text("Выбери вариант:",
