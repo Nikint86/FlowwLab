@@ -149,27 +149,95 @@ def handle_review(update: Update, context: CallbackContext):
         return start(update, context)
 
     if response == "Нравится":
+        context.user_data['step'] = 'get_name'
         update.message.reply_text(
-            "Супер! Хочешь:\n"
-            "1️⃣ Оформить заказ\n"
-            "2️⃣ Узнать о доставке\n"
-            "3️⃣ Посмотреть другие букеты\n\n"
-            "Напиши номер варианта или /start",
+            "Отлично! Давайте оформим заказ.\n\n"
+            "Пожалуйста, введите ваше ФИО:",
             reply_markup=ReplyKeyboardRemove()
         )
-        context.user_data['step'] = 'final_options'
-        context.user_data['awaiting_action'] = True
     elif response == "Не нравится":
+        # ТУТ НУЖНО СДЕЛАТЬ ЕЩЁ 2 ВАРИАНТА С РАНДОМНЫМ БУКЕТОМ И С ПЕРЕВОДОМ НА ФЛОРИСТА
         update.message.reply_text(
             "Хочешь:\n"
-            "1️⃣ Подобрать другой букет (/start)\n"
-            "2️⃣ Позвать флориста\n\n"
-            "Напиши номер варианта",
+            "Хорошо, если передумаете - мы всегда на связи!\n"
+            "Напишите /start когда будете готовы выбрать букет.",
             reply_markup=ReplyKeyboardRemove()
         )
         # context.user_data['step'] = '?' перенаправление на консультацию или новый букет
     else:
         update.message.reply_text("Пожалуйста, ответь 'Нравится' или 'Не нравится'")
+
+
+def handle_name_input(update: Update, context: CallbackContext):
+    """Обрабатывает ввод ФИО"""
+    name = update.message.text
+    # Микро проверка
+    if len(name.split()) < 2:
+        update.message.reply_text("Пожалуйста, введите Фамилию Имя Отчество (полностью)")
+        return
+    context.user_data['name'] = name
+    context.user_data['step'] = 'get_address'
+    update.message.reply_text(
+        "Теперь введите адрес доставки (город, улица, дом, квартира):"
+    )
+
+
+def handle_address_input(update: Update, context: CallbackContext):
+    """Обрабатывает ввод адреса"""
+    address = update.message.text
+    context.user_data['address'] = address
+    context.user_data['step'] = 'get_date'
+    keyboard = [
+        [KeyboardButton("Сегодня"), KeyboardButton("Завтра")],
+        [KeyboardButton("Послезавтра")]
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    update.message.reply_text(
+        "Выберите дату доставки:",
+        reply_markup=reply_markup
+    )
+
+
+def handle_date_input(update: Update, context: CallbackContext):
+    """Обрабатывает ввод даты"""
+    date = update.message.text
+    context.user_data['delivery_date'] = date
+    context.user_data['step'] = 'get_time'
+
+    # Клавиатура с временными интервалами
+    keyboard = [
+        [KeyboardButton("10:00-12:00"), KeyboardButton("12:00-14:00")],
+        [KeyboardButton("14:00-16:00"), KeyboardButton("16:00-18:00")]
+    ]
+    reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+    update.message.reply_text(
+        "Выберите удобный интервал доставки:",
+        reply_markup=reply_markup
+    )
+
+
+def handle_time_input(update: Update, context: CallbackContext):
+    """Обрабатывает ввод времени и завершает заказ"""
+    time = update.message.text
+    context.user_data['delivery_time'] = time
+    # Формируем сводку заказа
+    order_summary = (
+        "✅ Ваш заказ оформлен!\n\n"
+        f"💐 Букет: {context.user_data['selected_bouquet']['name']}\n"
+        f"💰 Стоимость: {context.user_data['selected_bouquet']['price']}\n"
+        f"👤 Получатель: {context.user_data['name']}\n"
+        f"🏠 Адрес: {context.user_data['address']}\n"
+        f"📅 Дата: {context.user_data['delivery_date']}\n"
+        f"⏰ Время: {time}\n\n"
+        "Спасибо за заказ! Для оплаты с вами свяжется наш менеджер."
+    )
+    update.message.reply_text(
+        order_summary,
+        reply_markup=ReplyKeyboardRemove()
+    )
+    context.user_data.clear()
+    context.user_data['step'] = 'order_complete'
 
 
 def route_message(update: Update, context: CallbackContext):
@@ -187,6 +255,14 @@ def route_message(update: Update, context: CallbackContext):
         handle_price_choice(update, context)
     elif step == 'review':
         handle_review(update, context)
+    elif step == 'get_name':
+        handle_name_input(update, context)
+    elif step == 'get_address':
+        handle_address_input(update, context)
+    elif step == 'get_date':
+        handle_date_input(update, context)
+    elif step == 'get_time':
+        handle_time_input(update, context)
     else:
         update.message.reply_text("Пожалуйста, выбери вариант из меню.")
 
