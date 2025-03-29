@@ -11,40 +11,12 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 django.setup()
 
 
-import os
 import random
 
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, InputFile
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
 from dotenv import load_dotenv
 from bot.models import Bouquet
-
-
-# Заглушка "базы данных" букетов
-BOUQUETS_DB = {
-    "Белый": {
-        "~500": {
-            "photo": "https://violetflowers.ru/upload/resize_cache/iblock/210/800_800_1445b4302703fbf0bc9433e7bed9bfe3d/210b4d1c9970e1fcdd65812bbac7b7c8.jpeg",
-            "name": "Нежность",
-            "composition": "5 белых роз, гипсофила",
-            "price": "500 руб."
-        },
-        "~1000": {
-            "photo": "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRBOg1pSSompNpXp8C0nvbUzFDpNWCoGq_PMQ&s",
-            "name": "Снежная королева",
-            "composition": "15 белых роз, эвкалипт",
-            "price": "1000 руб."
-        }
-    },
-    "Розовый": {
-        "~1000": {
-            "photo": "https://www.beauty-flowers-moscow.ru/wp-content/uploads/2017/12/11-rozovyh-pionov-v-rozovoj-upakovke.jpg",
-            "name": "Розовые мечты",
-            "composition": "11 розовых роз, пионы",
-            "price": "1000 руб."
-        }
-    }
-}
 
 
 def start(update: Update, context: CallbackContext):
@@ -92,11 +64,12 @@ def handle_occasion_choice(update: Update, context: CallbackContext):
     """Обрабатывает выбор повода и предлагает выбор цвета."""
     occasion = update.message.text
     context.user_data['occasion'] = occasion
-    context.user_data['step'] = 'color_choice'
-
+    
     if occasion == "Другой повод":
+        context.user_data['step'] = 'custom_occasion'
         update.message.reply_text("Напиши, пожалуйста, какой у тебя повод?")
     else:
+        context.user_data['step'] = 'color_choice'
         colors = Bouquet.objects.values_list('color', flat=True).distinct()
         keyboard = [[KeyboardButton(color)] for color in colors]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
@@ -106,13 +79,39 @@ def handle_occasion_choice(update: Update, context: CallbackContext):
         )
 
 
+def handle_custom_occasion(update: Update, context: CallbackContext):
+    """обрабатывает персональный повод"""
+    context.user_data['custom_occasion'] = update.message.text
+    context.user_data['step'] = 'color_choice'
+
+    colors = Bouquet.objects.values_list('color',
+                                         flat=True).distinct()
+    keyboard = [[KeyboardButton(color)] for color in colors]
+    reply_markup = ReplyKeyboardMarkup(keyboard,
+                                       resize_keyboard=True)
+
+    update.message.reply_text(
+        "Какой цвет букета предпочитаешь?",
+        reply_markup=reply_markup
+    )
+
+    # prices = list(Bouquet.objects.values_list('price_category',
+    #                                           flat=True).distinct())
+    # keyboard = [[KeyboardButton(price)] for price in prices]
+    # reply_markup = ReplyKeyboardMarkup(keyboard,
+    #                                    resize_keyboard=True)
+    # update.message.reply_text("На какую сумму рассчитываете?",
+    #                           reply_markup=reply_markup)
+
+
 def handle_color_choice(update: Update, context: CallbackContext):
     """Обрабатывает выбор цвета и предлагает выбрать цену."""
     color = update.message.text
     context.user_data['color'] = color
     context.user_data['step'] = 'price_choice'
 
-    prices = list(Bouquet.objects.values_list('price_category', flat=True).distinct())
+    prices = list(Bouquet.objects.values_list('price_category',
+                                              flat=True).distinct())
     keyboard = [[KeyboardButton(price)] for price in prices]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
     update.message.reply_text(
@@ -145,6 +144,7 @@ def handle_price_choice(update: Update, context: CallbackContext):
         f"🎨 Цвет: {bouquet.color}\n"
         f"💰 Цена: {bouquet.price} руб.\n"
         f"🌸 Состав: {bouquet.composition}\n\n"
+        f"{bouquet.description}\n\n"
         "Тебе нравится этот вариант?"
     )
 
@@ -154,42 +154,65 @@ def handle_price_choice(update: Update, context: CallbackContext):
             caption=caption,
             parse_mode="Markdown"
         )
-    
-    keyboard = [[KeyboardButton("Нравится"), KeyboardButton("Не нравится")]]
+    keyboard = [[KeyboardButton("Заказать букет")],
+                [KeyboardButton("Заказать консультацию"),
+                 KeyboardButton("Посмотреть всю коллекцию")]]
     update.message.reply_text(
-        "Выбери вариант:",
-        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        "**Хотите что-то еще более уникальное?**\n\n"
+        "Подберите другой букет из нашей коллекции или закажите консультацию флориста:",
+        reply_markup=ReplyKeyboardMarkup(keyboard,
+                                         resize_keyboard=True)
     )
+    # keyboard = [[KeyboardButton("Нравится"), KeyboardButton("Не нравится")]]
+    # update.message.reply_text(
+    #     "Выбери вариант:",
+    #     reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    # )
 
 
 def handle_review(update: Update, context: CallbackContext):
-    """Обрабатывает ответ 'Нравится?'"""
-    response = update.message.text
-    bouquet = context.user_data.get('selected_bouquet')
-
-    if not bouquet:
-        return start(update, context)
-
-    if response == "Нравится":
-        context.user_data['step'] = 'get_name'
-        update.message.reply_text(
-            "Отлично! Давайте оформим заказ.\n\n"
-            "Пожалуйста, введите ваше ФИО:",
-            reply_markup=ReplyKeyboardRemove()
-        )
-    elif response == "Не нравится":
-        keyboard = [[KeyboardButton("Заказать консультацию")], [KeyboardButton("Посмотреть другой букет")]]
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-        update.message.reply_text(
-            "**Хотите что-то более уникальное?**\n\n"
-            "Подберите другой букет из нашей коллекции или закажите консультацию флориста:",
-            reply_markup=reply_markup
-        )
-        context.user_data['step'] = 'dislike_options'
-
-        # context.user_data['step'] = '?' перенаправление на консультацию или новый букет
+    text = update.message.text
+    if text == "Нравится":
+        return handle_order_bouquet(update, context)
+    elif text == "Не нравится":
+        return handle_show_collection(update, context)
+    elif text == "Заказать букет":
+        return handle_order_bouquet(update, context)
+    elif text == "Заказать консультацию":
+        return handle_consultation(update, context)
+    elif text == "Посмотреть всю коллекцию":
+        return handle_show_collection(update, context)
     else:
-        update.message.reply_text("Пожалуйста, ответь 'Нравится' или 'Не нравится'")
+        update.message.reply_text("Пожалуйста, выбери вариант из меню.")
+
+# def handle_review(update: Update, context: CallbackContext):
+#     """Обрабатывает ответ 'Нравится?'"""
+#     response = update.message.text
+#     bouquet = context.user_data.get('selected_bouquet')
+
+#     if not bouquet:
+#         return start(update, context)
+
+#     if response == "Нравится":
+#         context.user_data['step'] = 'get_name'
+#         update.message.reply_text(
+#             "Отлично! Давайте оформим заказ.\n\n"
+#             "Пожалуйста, введите ваше ФИО:",
+#             reply_markup=ReplyKeyboardRemove()
+#         )
+#     elif response == "Не нравится":
+#         keyboard = [[KeyboardButton("Заказать консультацию")], [KeyboardButton("Посмотреть другой букет")]]
+#         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+#         update.message.reply_text(
+#             "**Хотите что-то более уникальное?**\n\n"
+#             "Подберите другой букет из нашей коллекции или закажите консультацию флориста:",
+#             reply_markup=reply_markup
+#         )
+#         context.user_data['step'] = 'dislike_options'
+
+#         # context.user_data['step'] = '?' перенаправление на консультацию или новый букет
+#     else:
+#         update.message.reply_text("Пожалуйста, ответь 'Нравится' или 'Не нравится'")
 
 
 def handle_dislike_options(update: Update, context: CallbackContext):
@@ -208,6 +231,7 @@ def handle_dislike_options(update: Update, context: CallbackContext):
             f"💐 *{bouquet.title}*\n"
             f"🌸 Состав: {bouquet.composition}\n"
             f"💰 Цена: {bouquet.price} руб.\n\n"
+            f"{bouquet.description}\n\n"
             "Тебе нравится этот вариант?"
         )
 
@@ -229,7 +253,57 @@ def handle_dislike_options(update: Update, context: CallbackContext):
         context.user_data['step'] = 'get_phone'
 
 
+def handle_order_bouquet(update: Update, context: CallbackContext): # возможно логика не такая должна быть - есть handle_name_input
+    """Обрабатывает кнопку - Заказать букет"""
+    context.user_data['step'] = 'get_name'
+    
+    update.message.reply_text(
+        "Отлично! Давайте оформим заказ.\n\n"
+        "Пожалуйста, введите ваше ФИО:", # если handle_name_input() - строчка лишняя
+        reply_markup=ReplyKeyboardRemove()
+    )
+    # и тут вызов handle_name_input()
+
+
+def handle_show_collection(update: Update, context: CallbackContext):
+    """Обрабатывает кнопку - Посмотреть всю коллекцию"""
+    bouquets = list(Bouquet.objects.all())
+    if not bouquets:
+        update.message.reply_text("К сожалению, в коллекции пока ничего нет.")
+        return
+
+    bouquet = random.choice(bouquets)
+    context.user_data['selected_bouquet'] = bouquet
+    context.user_data['step'] = 'review'
+
+    caption = (
+        f"💐 *{bouquet.title}*\n"
+        f"🌸 Состав: {bouquet.composition}\n"
+        f"💰 Цена: {bouquet.price} руб.\n\n"
+        f"{bouquet.description}\n\n"
+        "Тебе нравится этот вариант?"
+    )
+    with open(bouquet.photo.path, 'rb') as image:
+        update.message.reply_photo(photo=InputFile(image), caption=caption, parse_mode="Markdown")
+
+    keyboard = [[KeyboardButton("Заказать букет")],
+                [KeyboardButton("Заказать консультацию"),
+                KeyboardButton("Посмотреть всю коллекцию")]]
+    update.message.reply_text(
+        "**Хотите что-то еще более уникальное?**\n\n"
+        "Подберите другой букет из нашей коллекции или закажите консультацию флориста:",
+        reply_markup=ReplyKeyboardMarkup(keyboard,
+                                         resize_keyboard=True)
+    )
+
+def handle_consultation(update: Update, context: CallbackContext): # возможно здесь стоит придумать нечто с  handle_get_phone
+    """Обрабатывает запрос консультации"""
+    context.user_data['step'] = 'get_phone'
+    update.message.reply_text("Пожалуйста, укажите номер телефона:")
+
+
 def handle_get_phone(update: Update, context: CallbackContext):
+
     phone = update.message.text
     # florist_id = 987654321  # нужен айди - при отправке сейчас будет ошибка
 
@@ -253,6 +327,7 @@ def handle_get_phone(update: Update, context: CallbackContext):
             f"💐 *{bouquet.title}*\n"
             f"🌸 Состав: {bouquet.composition}\n"
             f"💰 Цена: {bouquet.price} руб.\n\n"
+            f"{bouquet.description}\n\n"
             "Тебе нравится этот вариант?"
         )
 
@@ -330,6 +405,7 @@ def handle_time_input(update: Update, context: CallbackContext):
         f"💐 Букет: {bouquet.title}\n"
         f"💰 Стоимость: {bouquet.price} руб.\n"
         f"🌸 Состав: {bouquet.composition}\n"
+        f"{bouquet.description}\n\n"
         f"👤 Получатель: {context.user_data['name']}\n"
         f"🏠 Адрес: {context.user_data['address']}\n"
         f"📅 Дата: {context.user_data['delivery_date']}\n"
@@ -345,7 +421,7 @@ def handle_time_input(update: Update, context: CallbackContext):
 
     update.message.reply_text("Ваш заказ принят! 💐",
                               reply_markup=ReplyKeyboardRemove())
-    # notify_courier(context.bot, bouquet, order_summary)
+    # notify_courier(context.bot, bouquet, order_summary) тут оставляем эту строчку
     # courier_id = os.getenv("COURIER_ID")
     # with open(bouquet.photo.path, 'rb') as image:
     #     context.bot.send_photo(
@@ -378,12 +454,14 @@ def route_message(update: Update, context: CallbackContext):
         handle_consent(update, context)
     elif step == 'occasion_choice':
         handle_occasion_choice(update, context)
+    elif step == 'custom_occasion':
+        handle_custom_occasion(update, context)
     elif step == 'color_choice':
         handle_color_choice(update, context)
     elif step == 'price_choice':
         handle_price_choice(update, context)
     elif step == 'review':
-        handle_review(update, context)
+        return handle_review(update, context)
     elif step == 'get_name':
         handle_name_input(update, context)
     elif step == 'get_address':
