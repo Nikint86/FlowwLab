@@ -161,10 +161,11 @@ def handle_price_choice(update: Update, context: CallbackContext):
                 [KeyboardButton("Заказать консультацию"),
                  KeyboardButton("Посмотреть всю коллекцию")]]
     update.message.reply_text(
-        "**Хотите что-то еще более уникальное?**\n\n"
+        "<b>Хотите что-то еще более уникальное?</b>\n\n"
         "Подберите другой букет из нашей коллекции или закажите консультацию флориста:",
         reply_markup=ReplyKeyboardMarkup(keyboard,
-                                         resize_keyboard=True)
+                                         resize_keyboard=True),
+        parse_mode="HTML"
     )
     # keyboard = [[KeyboardButton("Нравится"), KeyboardButton("Не нравится")]]
     # update.message.reply_text(
