@@ -13,6 +13,7 @@ django.setup()
 
 import random
 import pytz
+import re
 
 from datetime import datetime, timedelta
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, InputFile
@@ -301,12 +302,16 @@ def handle_show_collection(update: Update, context: CallbackContext):
 def handle_consultation(update: Update, context: CallbackContext): # возможно здесь стоит придумать нечто с  handle_get_phone
     """Обрабатывает запрос консультации"""
     context.user_data['step'] = 'get_phone'
-    update.message.reply_text("Пожалуйста, укажите номер телефона:")
+    update.message.reply_text("Пожалуйста, укажите номер телефона в формате +71234567890 или 81234567890:")
 
 
 def handle_get_phone(update: Update, context: CallbackContext):
 
     phone = update.message.text
+    if not re.match(r'^(\+7|8)[0-9]{10}$', phone.replace(" ", "")):
+        update.message.reply_text("Неверный формат номера. Пожалуйста, укажите номер в формате +71234567890 или 81234567890 (11 цифр без пробелов и разделителей)")
+        return
+    context.user_data['phone'] = phone
     # florist_id = 987654321  # нужен айди - при отправке сейчас будет ошибка
 
     # context.bot.send_message(
