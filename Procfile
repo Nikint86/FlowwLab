@@ -1,1 +1,1 @@
-web: python FlowwLab/telegram_bot/handlers.py
+web: python telegram_bot/handlers.py
