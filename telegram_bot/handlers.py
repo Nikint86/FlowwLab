@@ -478,6 +478,8 @@ def handle_time_input(update: Update, context: CallbackContext):
 
     update.message.reply_text("Ваш заказ принят! 💐",
                               reply_markup=ReplyKeyboardRemove())
+    
+    notify_courier(context.bot, bouquet, order_summary)
     # notify_courier(context.bot, bouquet, order_summary) тут оставляем эту строчку
     # courier_id = os.getenv("COURIER_ID")
     # with open(bouquet.photo.path, 'rb') as image:
@@ -491,8 +493,9 @@ def handle_time_input(update: Update, context: CallbackContext):
 
 
 def notify_courier(bot, bouquet, order_summary):
-    courier_id = os.getenv("COURIER_ID")
+    courier_id = os.getenv("COURIER_CHAT_ID")
     if not courier_id:
+        print("COURIER_CHAT_ID не установлен в переменных окружения")
         return  # можно логгер добавить
     with open(bouquet.photo.path, 'rb') as image:
         bot.send_photo(
