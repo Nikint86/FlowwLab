@@ -12,7 +12,9 @@ django.setup()
 
 
 import random
+import pytz
 
+from datetime import datetime, timedelta
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, InputFile
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
 from dotenv import load_dotenv
@@ -377,17 +379,67 @@ def handle_address_input(update: Update, context: CallbackContext):
 
 def handle_date_input(update: Update, context: CallbackContext):
     """Обрабатывает ввод даты"""
-    date = update.message.text
-    context.user_data['delivery_date'] = date
+    user_data_choice = update.message.text
+    now = datetime.now(pytz.timezone('Europe/Moscow'))
+    if user_data_choice == "Сегодня":
+        delivery_date = now.date()
+    elif user_data_choice == "Завтра":
+        delivery_date = (now + timedelta(days=1)).date()
+    elif user_data_choice == "Послезавтра":
+        delivery_date = (now + timedelta(days=2)).date()
+    else:
+        update.message.reply_text("Пожалуйста, выберите дату из предложенных вариантов")
+        return
+    if delivery_date < now.date():
+        update.message.reply_text(
+            "❌ Нельзя выбрать прошедшую дату!\n"
+            "Пожалуйста, выберите другую дату:",
+            reply_markup=ReplyKeyboardMarkup(
+                [
+                    [KeyboardButton("Сегодня"), KeyboardButton("Завтра")],
+                    [KeyboardButton("Послезавтра")]
+                ],
+                resize_keyboard=True
+            )
+        )
+        return
+    # Сохраняем дату и переходим к выбору времени
+    context.user_data['delivery_date'] = delivery_date.strftime('%d.%m.%Y')
     context.user_data['step'] = 'get_time'
-
-    # Клавиатура с временными интервалами
-    keyboard = [
-        [KeyboardButton("10:00-12:00"), KeyboardButton("12:00-14:00")],
-        [KeyboardButton("14:00-16:00"), KeyboardButton("16:00-18:00")]
-    ]
+    # Формируем доступные временные интервалы
+    time_slots = []
+    current_hour = now.hour
+    # Если выбрана сегодняшняя дата, исключаем прошедшие временные интервалы
+    if delivery_date == now.date():
+        time_slots = [
+            ("10:00-12:00", 10),
+            ("12:00-14:00", 12),
+            ("14:00-16:00", 14),
+            ("16:00-18:00", 16)
+        ]
+        # Оставляем только будущие интервалы
+        available_slots = [slot[0] for slot in time_slots if slot[1] > current_hour]
+        if not available_slots:
+            update.message.reply_text(
+                "❌ На сегодня все временные интервалы уже прошли.\n"
+                "Пожалуйста, выберите другую дату:",
+                reply_markup=ReplyKeyboardMarkup(
+                    [
+                        [KeyboardButton("Завтра"), KeyboardButton("Послезавтра")]
+                    ],
+                    resize_keyboard=True
+                )
+            )
+            return
+        # Создаем клавиатуру из доступных слотов
+        keyboard = [[KeyboardButton(slot)] for slot in available_slots]
+    else:
+        # Для будущих дней все интервалы доступны
+        keyboard = [
+            [KeyboardButton("10:00-12:00"), KeyboardButton("12:00-14:00")],
+            [KeyboardButton("14:00-16:00"), KeyboardButton("16:00-18:00")]
+        ]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-
     update.message.reply_text(
         "Выберите удобный интервал доставки:",
         reply_markup=reply_markup
