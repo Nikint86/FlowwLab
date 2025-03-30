@@ -312,24 +312,24 @@ def handle_get_phone(update: Update, context: CallbackContext):
         update.message.reply_text("Неверный формат номера. Пожалуйста, укажите номер в формате +71234567890 или 81234567890 (11 цифр без пробелов и разделителей)")
         return
     context.user_data['phone'] = phone
-    # florist_id = 987654321  # нужен айди - при отправке сейчас будет ошибка
-
-    # context.bot.send_message(
-    #     chat_id=florist_id,
-    #     text=f"📞 Заявка на консультацию!\nНомер: {phone}"
-    # )
-
+    florist_id = os.getenv("FLORIST_CHAT_ID")
+    if florist_id:
+        context.bot.send_message(
+            chat_id=florist_id,
+            text=f"Новая заявка на консультацию\n"
+                 f"Телефон: {phone}\n"
+                 f"Пользователь: @{update.message.from_user.username}"
+        )
     update.message.reply_text(
-        "Флорист скоро свяжется с вами. А пока можете присмотреть что-нибудь из готовой коллекции 👇"
+        "Укажите номер телефона, и наш флорист перезвонит вам в течение 20 минут. А пока можете присмотреть что-нибудь из готовой коллекции 👇"
     )
 
     # Покажем букет
     bouquets = list(Bouquet.objects.all()) # возможно стоит не all использовать
     if bouquets:
         bouquet = random.choice(bouquets)
-
         context.user_data['selected_bouquet'] = bouquet
-
+        context.user_data['step'] = 'review'
         caption = (
             f"💐 *{bouquet.title}*\n"
             f"🌸 Состав: {bouquet.composition}\n"
