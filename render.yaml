@@ -1,0 +1,38 @@
+services:
+  - type: web
+    name: django-admin
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn config.wsgi
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings
+      - key: PYTHON_VERSION
+        value: 3.11
+      - key: SECRET_KEY
+        sync: false
+      - key: TG_BOT_TOKEN
+        sync: false
+      - key: FLORIST_CHAT_ID
+        sync: false
+      - key: COURIER_CHAT_ID
+        sync: false
+
+  - type: worker
+    name: telegram-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python telegram_bot/handlers.py
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: config.settings
+      - key: PYTHON_VERSION
+        value: 3.11
+      - key: SECRET_KEY
+        sync: false
+      - key: TG_BOT_TOKEN
+        sync: false
+      - key: FLORIST_CHAT_ID
+        sync: false
+      - key: COURIER_CHAT_ID
+        sync: false
