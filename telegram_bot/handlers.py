@@ -225,7 +225,7 @@ def handle_dislike_options(update: Update, context: CallbackContext):
 
     elif choice == "Заказать консультацию":
         update.message.reply_text("Пожалуйста, укажите номер телефона:")
-        context.user_data['step'] = 'get_phone'
+        context.user_data['step'] = 'get_consultation_phone'
 
 
 def handle_order_bouquet(update: Update, context: CallbackContext): # возможно логика не такая должна быть - есть handle_name_input
@@ -274,8 +274,117 @@ def handle_show_collection(update: Update, context: CallbackContext):
 
 def handle_consultation(update: Update, context: CallbackContext): # возможно здесь стоит придумать нечто с  handle_get_phone
     """Обрабатывает запрос консультации"""
-    context.user_data['step'] = 'get_phone'
+    context.user_data['step'] = 'get_consultation_phone'
     update.message.reply_text("Пожалуйста, укажите номер телефона в формате +71234567890 или 81234567890:")
+
+
+def is_valid_phone(phone):
+    return re.match(r'^(\+7|8)[0-9]{10}$', phone.replace(" ", "")) is not None
+
+
+def handle_get_phone_for_order(update: Update, context: CallbackContext):
+    phone = update.message.text
+    if not is_valid_phone(phone):
+        update.message.reply_text(
+            "Неверный формат номера. Пожалуйста, укажите номер в формате +71234567890 или 81234567890"
+            )
+        return
+
+    context.user_data['phone'] = phone
+    return finalize_order(update, context)
+
+
+def finalize_order(update: Update, context: CallbackContext):
+    """Сохраняет заказ, отправляет клиенту подтверждение и уведомляет курьера"""
+    phone = context.user_data['phone']
+    name = context.user_data['name']
+    address = context.user_data['address']
+    bouquet = context.user_data['selected_bouquet']
+    date_str = context.user_data['delivery_date']
+    time = context.user_data['delivery_time']
+    # ????
+    today = datetime.today()
+    if date_str == "Сегодня":
+        date_obj = today
+    elif date_str == "Завтра":
+        date_obj = today + timedelta(days=1)
+    elif date_str == "Послезавтра":
+        date_obj = today + timedelta(days=2)
+    else:
+        date_obj = today
+
+    time_start = time.split("-")[0]
+    delivery_dt = datetime.strptime(
+        f"{date_obj.strftime('%Y-%m-%d')} {time_start}",
+                                    "%Y-%m-%d %H:%M"
+                                    )
+
+    # Сохраняем заказ в БД
+    Order.objects.create(
+        name=name,
+        address=address,
+        phone=phone,
+        delivery_time=delivery_dt,
+        bouquet=bouquet,
+        comment="",
+        is_consultation=False,
+    )
+
+    # Формируем и отправляем сводку
+    order_summary = (
+        "✅ Ваш заказ оформлен!\n\n"
+        f"💐 Букет: {bouquet.title}\n"
+        f"💰 Стоимость: {bouquet.price} руб.\n"
+        f"🌸 Состав: {bouquet.composition}\n"
+        f"{bouquet.description}\n\n"
+        f"👤 Получатель: {name}\n"
+        f"🏠 Адрес: {address}\n"
+        f"📅 Дата: {date_str}\n"
+        f"⏰ Время: {time}\n\n"
+        "Спасибо за заказ! 🥰 С вами скоро свяжется наш менеджер."
+    )
+
+    with open(bouquet.photo.path, 'rb') as image:
+        update.message.reply_photo(photo=InputFile(image), caption=order_summary)
+
+    update.message.reply_text("Ваш заказ принят! 💐",
+                              reply_markup=ReplyKeyboardRemove())
+    
+    notify_courier(update.bot, bouquet, order_summary)
+
+    context.user_data.clear()
+
+
+def handle_get_phone_for_consultation(update: Update, context: CallbackContext):
+    phone = update.message.text
+    if not is_valid_phone(phone):
+        update.message.reply_text(
+            "Неверный формат номера. Пожалуйста, укажите номер в формате +71234567890 или 81234567890"
+            )
+        return
+    
+    context.user_data['phone'] = phone
+    name = context.user_data.get('name', 'неизвестно')
+    username = update.message.from_user.username or ''
+
+    ConsultationRequest.objects.create(
+        name=name,
+        telegram_username=username,
+        phone=phone
+    )
+
+    florist_id = os.getenv("FLORIST_CHAT_ID")
+    if florist_id:
+        context.bot.send_message(
+            chat_id=florist_id,
+            text=f"Новая заявка на консультацию\nТелефон: {phone}\n\n"
+            f"Пользователь: @{username}"
+        )
+
+    update.message.reply_text(
+        "Номер принят. А пока можете присмотреть что-нибудь из уже готовой коллекции 👇"
+        )
+    return handle_show_collection(update, context)
 
 
 def handle_get_phone(update: Update, context: CallbackContext):
@@ -364,132 +473,215 @@ def handle_address_input(update: Update, context: CallbackContext):
     )
 
 
+def get_delivery_datetime(date_str: str, time_str: str) -> datetime:
+    """Преобразует выбор пользователя в datetime доставки"""
+    today = datetime.today()
+    if date_str == "Сегодня":
+        date_obj = today
+    elif date_str == "Завтра":
+        date_obj = today + timedelta(days=1)
+    elif date_str == "Послезавтра":
+        date_obj = today + timedelta(days=2)
+    else:
+        date_obj = today  # fallback, если пришло что-то странное
+
+    time_start = time_str.split("-")[0]
+    delivery_dt = datetime.strptime(
+        f"{date_obj.strftime('%Y-%m-%d')} {time_start}",
+        "%Y-%m-%d %H:%M"
+    )
+    return delivery_dt
+
+
 def handle_date_input(update: Update, context: CallbackContext):
-    """Обрабатывает ввод даты"""
+    """Обрабатывает ввод даты и предлагает выбрать временной интервал"""
     user_data_choice = update.message.text
     now = datetime.now(pytz.timezone('Europe/Moscow'))
-    if user_data_choice == "Сегодня":
-        delivery_date = now.date()
-    elif user_data_choice == "Завтра":
-        delivery_date = (now + timedelta(days=1)).date()
-    elif user_data_choice == "Послезавтра":
-        delivery_date = (now + timedelta(days=2)).date()
-    else:
-        update.message.reply_text("Пожалуйста, выберите дату из предложенных вариантов")
+
+    if user_data_choice not in ["Сегодня", "Завтра", "Послезавтра"]:
+        update.message.reply_text("Пожалуйста, выберите дату из предложенных вариантов.")
         return
-    if delivery_date < now.date():
-        update.message.reply_text(
-            "❌ Нельзя выбрать прошедшую дату!\n"
-            "Пожалуйста, выберите другую дату:",
-            reply_markup=ReplyKeyboardMarkup(
-                [
-                    [KeyboardButton("Сегодня"), KeyboardButton("Завтра")],
-                    [KeyboardButton("Послезавтра")]
-                ],
-                resize_keyboard=True
-            )
-        )
-        return
-    # Сохраняем дату и переходим к выбору времени
-    context.user_data['delivery_date'] = delivery_date.strftime('%d.%m.%Y')
+
+    context.user_data['delivery_date'] = user_data_choice
     context.user_data['step'] = 'get_time'
-    # Формируем доступные временные интервалы
-    time_slots = []
-    current_hour = now.hour
-    # Если выбрана сегодняшняя дата, исключаем прошедшие временные интервалы
-    if delivery_date == now.date():
-        time_slots = [
-            ("10:00-12:00", 10),
-            ("12:00-14:00", 12),
-            ("14:00-16:00", 14),
-            ("16:00-18:00", 16)
-        ]
-        # Оставляем только будущие интервалы
-        available_slots = [slot[0] for slot in time_slots if slot[1] > current_hour]
+
+    # Определяем доступные интервалы
+    all_slots = [
+        ("10:00-12:00", 10),
+        ("12:00-14:00", 12),
+        ("14:00-16:00", 14),
+        ("16:00-18:00", 16)
+    ]
+
+    if user_data_choice == "Сегодня":
+        current_hour = now.hour
+        available_slots = [slot for slot, hour in all_slots if hour > current_hour]
         if not available_slots:
             update.message.reply_text(
                 "❌ На сегодня все временные интервалы уже прошли.\n"
                 "Пожалуйста, выберите другую дату:",
                 reply_markup=ReplyKeyboardMarkup(
-                    [
-                        [KeyboardButton("Завтра"), KeyboardButton("Послезавтра")]
-                    ],
+                    [[KeyboardButton("Завтра")], [KeyboardButton("Послезавтра")]],
                     resize_keyboard=True
                 )
             )
             return
-        # Создаем клавиатуру из доступных слотов
-        keyboard = [[KeyboardButton(slot)] for slot in available_slots]
     else:
-        # Для будущих дней все интервалы доступны
-        keyboard = [
-            [KeyboardButton("10:00-12:00"), KeyboardButton("12:00-14:00")],
-            [KeyboardButton("14:00-16:00"), KeyboardButton("16:00-18:00")]
-        ]
+        available_slots = [slot for slot, _ in all_slots]
+
+    keyboard = [[KeyboardButton(slot)] for slot in available_slots]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
     update.message.reply_text(
         "Выберите удобный интервал доставки:",
         reply_markup=reply_markup
     )
 
+# def handle_date_input(update: Update, context: CallbackContext):
+#     """Обрабатывает ввод даты"""
+#     user_data_choice = update.message.text
+#     now = datetime.now(pytz.timezone('Europe/Moscow'))
+#     if user_data_choice == "Сегодня":
+#         delivery_date = now.date()
+#     elif user_data_choice == "Завтра":
+#         delivery_date = (now + timedelta(days=1)).date()
+#     elif user_data_choice == "Послезавтра":
+#         delivery_date = (now + timedelta(days=2)).date()
+#     else:
+#         update.message.reply_text("Пожалуйста, выберите дату из предложенных вариантов")
+#         return
+#     if delivery_date < now.date():
+#         update.message.reply_text(
+#             "❌ Нельзя выбрать прошедшую дату!\n"
+#             "Пожалуйста, выберите другую дату:",
+#             reply_markup=ReplyKeyboardMarkup(
+#                 [
+#                     [KeyboardButton("Сегодня"), KeyboardButton("Завтра")],
+#                     [KeyboardButton("Послезавтра")]
+#                 ],
+#                 resize_keyboard=True
+#             )
+#         )
+#         return
+#     # Сохраняем дату и переходим к выбору времени
+#     context.user_data['delivery_date'] = delivery_date.strftime('%d.%m.%Y')
+#     context.user_data['step'] = 'get_time'
+#     # Формируем доступные временные интервалы
+#     time_slots = []
+#     current_hour = now.hour
+#     # Если выбрана сегодняшняя дата, исключаем прошедшие временные интервалы
+#     if delivery_date == now.date():
+#         time_slots = [
+#             ("10:00-12:00", 10),
+#             ("12:00-14:00", 12),
+#             ("14:00-16:00", 14),
+#             ("16:00-18:00", 16)
+#         ]
+#         # Оставляем только будущие интервалы
+#         available_slots = [slot[0] for slot in time_slots if slot[1] > current_hour]
+#         if not available_slots:
+#             update.message.reply_text(
+#                 "❌ На сегодня все временные интервалы уже прошли.\n"
+#                 "Пожалуйста, выберите другую дату:",
+#                 reply_markup=ReplyKeyboardMarkup(
+#                     [
+#                         [KeyboardButton("Завтра"), KeyboardButton("Послезавтра")]
+#                     ],
+#                     resize_keyboard=True
+#                 )
+#             )
+#             return
+#         # Создаем клавиатуру из доступных слотов
+#         keyboard = [[KeyboardButton(slot)] for slot in available_slots]
+#     else:
+#         # Для будущих дней все интервалы доступны
+#         keyboard = [
+#             [KeyboardButton("10:00-12:00"), KeyboardButton("12:00-14:00")],
+#             [KeyboardButton("14:00-16:00"), KeyboardButton("16:00-18:00")]
+#         ]
+#     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+#     update.message.reply_text(
+#         "Выберите удобный интервал доставки:",
+#         reply_markup=reply_markup
+#     )
+
 
 def handle_time_input(update: Update, context: CallbackContext):
-    """Обрабатывает ввод времени и завершает заказ"""
-    time = update.message.text
-    phone = context.user_data.get('phone', '')
-    context.user_data['delivery_time'] = time
-    # Формируем сводку заказа
-    bouquet = context.user_data['selected_bouquet']
-    name = context.user_data['name']
-    address = context.user_data['address']
-    date_str = context.user_data['delivery_date']
+    """Обрабатывает ввод времени и переходит к сбору номера телефона"""
+    time_str = update.message.text
+    context.user_data['delivery_time'] = time_str
 
-    today = datetime.today()
-    if date_str == "Сегодня":
-        date_obj = today
-    elif date_str == "Завтра":
-        date_obj = today.replace(day=today.day + 1)
-    elif date_str == "Послезавтра":
-        date_obj = today.replace(day=today.day + 2)
-    else:
-        date_obj = today
-    
-    time_start = time.split("-")[0]
-    delivery_dt = datetime.strptime(f"{date_obj.strftime('%Y-%m-%d')} {time_start}", "%Y-%m-%d %H:%M")
+    date_str = context.user_data.get('delivery_date')
+    try:
+        delivery_dt = get_delivery_datetime(date_str, time_str)
+    except ValueError:
+        update.message.reply_text(
+            "Ошибка в формате времени. Попробуйте снова."
+            )
+        return
 
-    # Сохраняем заказ
-    Order.objects.create(
-        name=name,
-        address=address,
-        phone=phone,
-        delivery_time=delivery_dt,
-        bouquet=bouquet,
-        comment="",  # если в будущем будет поле комментариев
-        is_consultation=False,
-    )
-    order_summary = (
-        "✅ Ваш заказ оформлен!\n\n"
-        f"💐 Букет: {bouquet.title}\n"
-        f"💰 Стоимость: {bouquet.price} руб.\n"
-        f"🌸 Состав: {bouquet.composition}\n"
-        f"{bouquet.description}\n\n"
-        f"👤 Получатель: {name}\n"
-        f"🏠 Адрес: {address}\n"
-        f"📅 Дата: {date_str}\n"
-        f"⏰ Время: {time}\n\n"
-        "Спасибо за заказ! 🥰 С вами скоро свяжется наш менеджер."
+    context.user_data['delivery_dt'] = delivery_dt
+    context.user_data['step'] = 'get_order_phone'
+
+    update.message.reply_text(
+        "Пожалуйста, укажите номер телефона для доставки (в формате +71234567890 или 81234567890):"
     )
 
-    with open(bouquet.photo.path, 'rb') as image:
-        update.message.reply_photo(
-            photo=InputFile(image),
-            caption=order_summary
-        )
+    # time = update.message.text
+    # # phone = context.user_data.get('phone', '')
+    # context.user_data['delivery_time'] = time
+    # # Формируем сводку заказа
+    # bouquet = context.user_data['selected_bouquet']
+    # name = context.user_data['name']
+    # address = context.user_data['address']
+    # date_str = context.user_data['delivery_date']
 
-    update.message.reply_text("Ваш заказ принят! 💐",
-                              reply_markup=ReplyKeyboardRemove())
+    # today = datetime.today()
+    # if date_str == "Сегодня":
+    #     date_obj = today
+    # elif date_str == "Завтра":
+    #     date_obj = today.replace(day=today.day + 1)
+    # elif date_str == "Послезавтра":
+    #     date_obj = today.replace(day=today.day + 2)
+    # else:
+    #     date_obj = today
     
-    notify_courier(context.bot, bouquet, order_summary)
+    # time_start = time.split("-")[0]
+    # delivery_dt = datetime.strptime(f"{date_obj.strftime('%Y-%m-%d')} {time_start}", "%Y-%m-%d %H:%M")
+
+    # # Сохраняем заказ
+    # Order.objects.create(
+    #     name=name,
+    #     address=address,
+    #     phone=phone,
+    #     delivery_time=delivery_dt,
+    #     bouquet=bouquet,
+    #     comment="",  # если в будущем будет поле комментариев
+    #     is_consultation=False,
+    # )
+    # order_summary = (
+    #     "✅ Ваш заказ оформлен!)\n\n"
+    #     f"💐 Букет: {bouquet.title}\n"
+    #     f"💰 Стоимость: {bouquet.price} руб.\n"
+    #     f"🌸 Состав: {bouquet.composition}\n"
+    #     f"{bouquet.description}\n\n"
+    #     f"👤 Получатель: {name}\n"
+    #     f"🏠 Адрес: {address}\n"
+    #     f"📅 Дата: {date_str}\n"
+    #     f"⏰ Время: {time}\n\n"
+    #     "Спасибо за заказ! 🥰 С вами скоро свяжется наш менеджер."
+    # )
+
+    # with open(bouquet.photo.path, 'rb') as image:
+    #     update.message.reply_photo(
+    #         photo=InputFile(image),
+    #         caption=order_summary
+    #     )
+
+    # update.message.reply_text("Ваш заказ принят! 💐",
+    #                           reply_markup=ReplyKeyboardRemove())
+    
+    # notify_courier(context.bot, bouquet, order_summary)
     # notify_courier(context.bot, bouquet, order_summary) тут оставляем эту строчку
     # courier_id = os.getenv("COURIER_ID")
     # with open(bouquet.photo.path, 'rb') as image:
@@ -516,34 +708,29 @@ def notify_courier(bot, bouquet, order_summary):
 
 
 def route_message(update: Update, context: CallbackContext):
-    """Промежуточная функция — распределитель сообщений."""
+    """Маршрутизирует входящие сообщения в зависимости от текущего шага пользователя."""
     step = context.user_data.get('step')
-    text = update.message.text  # для логов оставим пока
+    text = update.message.text
 
-    if step == 'consent':
-        handle_consent(update, context)
-    elif step == 'occasion_choice':
-        handle_occasion_choice(update, context)
-    elif step == 'custom_occasion':
-        handle_custom_occasion(update, context)
-    elif step == 'color_choice':
-        handle_color_choice(update, context)
-    elif step == 'price_choice':
-        handle_price_choice(update, context)
-    elif step == 'review':
-        return handle_review(update, context)
-    elif step == 'get_name':
-        handle_name_input(update, context)
-    elif step == 'get_address':
-        handle_address_input(update, context)
-    elif step == 'get_date':
-        handle_date_input(update, context)
-    elif step == 'get_time':
-        handle_time_input(update, context)
-    elif step == 'dislike_options':
-        handle_dislike_options(update, context)
-    elif step == 'get_phone':
-        handle_get_phone(update, context)
+    handlers = {
+        'consent': handle_consent,
+        'occasion_choice': handle_occasion_choice,
+        'custom_occasion': handle_custom_occasion,
+        'color_choice': handle_color_choice,
+        'price_choice': handle_price_choice,
+        'review': handle_review,
+        'get_name': handle_name_input,
+        'get_address': handle_address_input,
+        'get_date': handle_date_input,
+        'get_time': handle_time_input,
+        'get_consultation_phone': handle_get_phone_for_consultation,
+        'get_order_phone': handle_get_phone_for_order,
+        'dislike_options': handle_dislike_options,
+    }
+
+    handler = handlers.get(step)
+    if handler:
+        handler(update, context)
     else:
         update.message.reply_text("Пожалуйста, выбери вариант из меню.")
 
