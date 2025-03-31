@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, InputFile
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
 from dotenv import load_dotenv
-from bot.models import Bouquet
+from bot.models import Bouquet, Order, ConsultationRequest
 
 
 def start(update: Update, context: CallbackContext):
@@ -189,35 +189,6 @@ def handle_review(update: Update, context: CallbackContext):
     else:
         update.message.reply_text("Пожалуйста, выбери вариант из меню.")
 
-# def handle_review(update: Update, context: CallbackContext):
-#     """Обрабатывает ответ 'Нравится?'"""
-#     response = update.message.text
-#     bouquet = context.user_data.get('selected_bouquet')
-
-#     if not bouquet:
-#         return start(update, context)
-
-#     if response == "Нравится":
-#         context.user_data['step'] = 'get_name'
-#         update.message.reply_text(
-#             "Отлично! Давайте оформим заказ.\n\n"
-#             "Пожалуйста, введите ваше ФИО:",
-#             reply_markup=ReplyKeyboardRemove()
-#         )
-#     elif response == "Не нравится":
-#         keyboard = [[KeyboardButton("Заказать консультацию")], [KeyboardButton("Посмотреть другой букет")]]
-#         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-#         update.message.reply_text(
-#             "**Хотите что-то более уникальное?**\n\n"
-#             "Подберите другой букет из нашей коллекции или закажите консультацию флориста:",
-#             reply_markup=reply_markup
-#         )
-#         context.user_data['step'] = 'dislike_options'
-
-#         # context.user_data['step'] = '?' перенаправление на консультацию или новый букет
-#     else:
-#         update.message.reply_text("Пожалуйста, ответь 'Нравится' или 'Не нравится'")
-
 
 def handle_dislike_options(update: Update, context: CallbackContext):
     choice = update.message.text
@@ -300,6 +271,7 @@ def handle_show_collection(update: Update, context: CallbackContext):
                                          resize_keyboard=True)
     )
 
+
 def handle_consultation(update: Update, context: CallbackContext): # возможно здесь стоит придумать нечто с  handle_get_phone
     """Обрабатывает запрос консультации"""
     context.user_data['step'] = 'get_phone'
@@ -313,13 +285,22 @@ def handle_get_phone(update: Update, context: CallbackContext):
         update.message.reply_text("Неверный формат номера. Пожалуйста, укажите номер в формате +71234567890 или 81234567890 (11 цифр без пробелов и разделителей)")
         return
     context.user_data['phone'] = phone
+    name = context.user_data.get('name', 'неизвестно')
+    username = update.message.from_user.username or ''
+    
+    ConsultationRequest.objects.create(
+        name=name,
+        telegram_username=username,
+        phone=phone
+    )
+
     florist_id = os.getenv("FLORIST_CHAT_ID")
     if florist_id:
         context.bot.send_message(
             chat_id=florist_id,
             text=f"Новая заявка на консультацию\n"
                  f"Телефон: {phone}\n"
-                 f"Пользователь: @{update.message.from_user.username}"
+                 f"Пользователь: @{username}"
         )
     update.message.reply_text(
         "Номер принят. А пока можете присмотреть что-нибудь из готовой коллекции 👇"
@@ -455,18 +436,46 @@ def handle_date_input(update: Update, context: CallbackContext):
 def handle_time_input(update: Update, context: CallbackContext):
     """Обрабатывает ввод времени и завершает заказ"""
     time = update.message.text
+    phone = context.user_data.get('phone', '')
     context.user_data['delivery_time'] = time
     # Формируем сводку заказа
     bouquet = context.user_data['selected_bouquet']
+    name = context.user_data['name']
+    address = context.user_data['address']
+    date_str = context.user_data['delivery_date']
+
+    today = datetime.today()
+    if date_str == "Сегодня":
+        date_obj = today
+    elif date_str == "Завтра":
+        date_obj = today.replace(day=today.day + 1)
+    elif date_str == "Послезавтра":
+        date_obj = today.replace(day=today.day + 2)
+    else:
+        date_obj = today
+    
+    time_start = time.split("-")[0]
+    delivery_dt = datetime.strptime(f"{date_obj.strftime('%Y-%m-%d')} {time_start}", "%Y-%m-%d %H:%M")
+
+    # Сохраняем заказ
+    Order.objects.create(
+        name=name,
+        address=address,
+        phone=phone,
+        delivery_time=delivery_dt,
+        bouquet=bouquet,
+        comment="",  # если в будущем будет поле комментариев
+        is_consultation=False,
+    )
     order_summary = (
         "✅ Ваш заказ оформлен!\n\n"
         f"💐 Букет: {bouquet.title}\n"
         f"💰 Стоимость: {bouquet.price} руб.\n"
         f"🌸 Состав: {bouquet.composition}\n"
         f"{bouquet.description}\n\n"
-        f"👤 Получатель: {context.user_data['name']}\n"
-        f"🏠 Адрес: {context.user_data['address']}\n"
-        f"📅 Дата: {context.user_data['delivery_date']}\n"
+        f"👤 Получатель: {name}\n"
+        f"🏠 Адрес: {address}\n"
+        f"📅 Дата: {date_str}\n"
         f"⏰ Время: {time}\n\n"
         "Спасибо за заказ! 🥰 С вами скоро свяжется наш менеджер."
     )

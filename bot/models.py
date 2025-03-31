@@ -23,7 +23,7 @@ class Bouquet(models.Model):
     description = models.TextField('Описание')
     price = models.DecimalField('Цена', max_digits=10, decimal_places=2)
 
-    color = models.CharField('Цвет', max_length=50, choices=COLOR_CHOICES, default="Розовый")
+    color = models.CharField('Цвет',max_length=50, choices=COLOR_CHOICES, default="Розовый")
     price_category = models.CharField('Ценовая категория', max_length=50, choices=PRICE_CHOICES, default="~1000")
 
     def __str__(self):
@@ -31,7 +31,8 @@ class Bouquet(models.Model):
 
 
 class Order(models.Model):
-    name = models.CharField('Имя клиента', max_length=100)
+    name = models.CharField('Имя клиента', max_length=100, blank=True, default='не указано')
+    phone = models.CharField('Телефон клиента', max_length=30, blank=True, default='не указан')
     address = models.TextField('Адрес доставки')
     delivery_time = models.DateTimeField('Дата и время доставки')
     bouquet = models.ForeignKey('Bouquet', on_delete=models.CASCADE, verbose_name='Букет')
@@ -43,8 +44,10 @@ class Order(models.Model):
 
 
 class ConsultationRequest(models.Model):
-    phone = models.CharField('Телефон', max_length=30)
+    name = models.CharField('Имя клиента', max_length=100, blank=True, default='неизвестно')
+    telegram_username = models.CharField('Telegram username', max_length=100, blank=True)
+    phone = models.CharField('Телефон', max_length=30, blank=True, default='не указан')
     created_at = models.DateTimeField('Создано', auto_now_add=True)
 
     def __str__(self):
-        return f'Запрос: {self.phone} ({self.created_at.strftime("%Y-%m-%d %H:%M")})'
+        return f'Запрос: {self.name} ({self.created_at.strftime("%Y-%m-%d %H:%M")})'
