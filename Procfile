@@ -1,1 +1,1 @@
-web: python telegram_bot/handlers.py
+web: bash start.sh
