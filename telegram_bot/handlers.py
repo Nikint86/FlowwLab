@@ -624,7 +624,8 @@ def handle_time_input(update: Update, context: CallbackContext):
     context.user_data['step'] = 'get_order_phone'
 
     update.message.reply_text(
-        "Пожалуйста, укажите номер телефона для доставки (в формате +71234567890 или 81234567890):"
+        "Пожалуйста, укажите номер телефона для доставки (в формате +71234567890 или 81234567890):",
+        reply_markup=ReplyKeyboardRemove()
     )
 
     # time = update.message.text
