@@ -18,8 +18,9 @@ class CSVImportForm(forms.Form):
 
 @admin.register(Bouquet)
 class BouquetAdmin(admin.ModelAdmin):
-    list_display = ('title', 'color', 'price_category', 'price')
-    search_fields = ('title', 'composition')
+    list_display = ('title', 'color', 'price_category', 'price', 'occasion')
+    list_filter = ('color', 'price_category', 'occasion')
+    search_fields = ('title', 'composition', 'occasion')
 
     def get_urls(self):
         urls = super().get_urls()

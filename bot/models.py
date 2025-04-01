@@ -17,13 +17,35 @@ class Bouquet(models.Model):
         ("Не важно", "Не важно"),
     ]
 
+    OCCASION_CHOICES = [
+        ("День рождения", "День рождения"),
+        ("Свадьба", "Свадьба"),
+        ("Школа", "Школа"),
+        ("Без повода", "Без повода"),
+        ("Другой", "Другой"),
+    ]
+
     title = models.CharField('Название', max_length=200)
     photo = models.ImageField('Фото', upload_to='bouquets/')
     composition = models.TextField('Состав')
     description = models.TextField('Описание')
     price = models.DecimalField('Цена', max_digits=10, decimal_places=2)
 
-    color = models.CharField('Цвет',max_length=50, choices=COLOR_CHOICES, default="Розовый")
+    color = models.CharField(
+        'Цвет',
+        max_length=50,
+        choices=COLOR_CHOICES,
+        default="Розовый"
+    )
+    occasion = models.CharField(
+        'Повод',
+        max_length=50,
+        choices=OCCASION_CHOICES,
+        blank=True,
+        default='',
+        help_text='Например: День рождения, Свадьба и т.д.'
+    )
+
     price_category = models.CharField('Ценовая категория', max_length=50, choices=PRICE_CHOICES, default="~1000")
 
     def __str__(self):
