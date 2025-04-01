@@ -1,6 +1,8 @@
 import os
 import sys
 import django
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
+from dotenv import load_dotenv
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.append(BASE_DIR)
@@ -8,8 +10,6 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 
 django.setup()
 
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
-from dotenv import load_dotenv
 from telegram_bot.handlers import route_message, start
 
 
