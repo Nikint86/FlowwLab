@@ -551,6 +551,11 @@ def notify_courier(bot, bouquet, order_summary):
     if not courier_id:
         print("COURIER_CHAT_ID не установлен в переменных окружения")
         return
+    
+    bot.send_message(
+        chat_id=courier_id,
+        text="📦 Поступил новый заказ от клиента!"
+    )
     with open(bouquet.photo.path, 'rb') as image:
         bot.send_photo(
             chat_id=courier_id,
