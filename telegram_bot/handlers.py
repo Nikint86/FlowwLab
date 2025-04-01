@@ -336,7 +336,7 @@ def finalize_order(update: Update, context: CallbackContext):
     update.message.reply_text("Ваш заказ принят! 💐",
                               reply_markup=ReplyKeyboardRemove())
     
-    notify_courier(update.bot, bouquet, order_summary)
+    notify_courier(context.bot, bouquet, order_summary)
 
     context.user_data.clear()
 
